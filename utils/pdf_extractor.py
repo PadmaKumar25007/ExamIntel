@@ -1,5 +1,8 @@
 import pdfplumber
 import re
+import spacy
+
+nlp = spacy.load("en_core_web_sm")
 
 def clean_text(text):
     text = re.sub(r'\d+', '', text)  # remove numbers

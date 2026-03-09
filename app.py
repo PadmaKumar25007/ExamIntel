@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import plotly.express as px
 
 from utils.pdf_extractor import extract_text_from_pdfs
 from utils.topic_analyzer import extract_topics
@@ -17,26 +18,68 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files:
 
-    text_dict = extract_text_from_pdfs(uploaded_files)
+    with st.spinner("Analyzing exam papers..."):
+      text_dict = extract_text_from_pdfs(uploaded_files)
+      topic_df = extract_topics(text_dict)
+      trend_df = calculate_trend(text_dict, topic_df)
 
     st.success("PDFs processed successfully!")
 
-    topic_df = extract_topics(text_dict)
+    topic_df.insert(0, "Rank", range(1, len(topic_df) + 1))
+
+    topic_df["Score"] = topic_df["Score"].round(3)
 
     st.subheader("🔎 Top Extracted Topics")
-    st.dataframe(topic_df)
-
-    trend_df = calculate_trend(text_dict, topic_df)
+    st.dataframe(
+    topic_df.style
+        .format({"Score": "{:.3f}"})
+        .set_properties(**{'text-align': 'left'})
+        .set_table_styles([
+            {'selector': 'th', 'props': [('text-align', 'left')]}
+        ]),
+    use_container_width=True,
+    hide_index=True
+)
 
     st.subheader("📈 Probability Analysis")
-    st.dataframe(trend_df)
+    st.dataframe(
+    trend_df.style
+        .format({"Score": "{:.3f}"})
+        .set_properties(**{'text-align': 'left'})
+        .set_table_styles([
+            {'selector': 'th', 'props': [('text-align', 'left')]}
+        ]),
+    use_container_width=True,
+    hide_index=True
+)
 
     st.subheader("📊 Topic Probability Chart")
-    fig, ax = plt.subplots()
-    ax.bar(trend_df["Topic"], trend_df["Probability (%)"])
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
+    fig = px.bar(
+    trend_df,
+    x="Topic",
+    y="Probability (%)",
+    title="Topic Probability Analysis",
+    text="Probability (%)",
+    color="Probability (%)",
+    color_continuous_scale="Blues"
+)
 
+    fig.update_traces(texttemplate='%{text:.0f}%', textposition='outside')
+
+    fig.update_layout(
+        xaxis_tickangle=-40,
+        yaxis_title=dict(
+        text="Probability (%)",
+        font=dict(size=14, family="Arial Black")
+    ),
+    xaxis_title=dict(
+        text="Topics",
+        font=dict(size=14, family="Arial Black")
+    ),
+            showlegend=False
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
     st.subheader("⏳ Study Plan Generator")
 
     days = st.number_input("Days Left", min_value=1, value=10)
@@ -58,9 +101,18 @@ if uploaded_files:
         plan = generate_study_plan(trend_df, days, hours, weak_topics, strong_topics)
         plan_df = pd.DataFrame(plan)
 
-        st.dataframe(plan_df)
+        st.dataframe(plan_df, use_container_width=True)
 
-        fig2, ax2 = plt.subplots()
-        ax2.pie(plan_df["Allocated Hours"], labels=plan_df["Topic"], autopct="%1.1f%%")
-        st.pyplot(fig2)
-        st.info("Weak topics boosted by 30%, strong topics reduced by 20%")
+        fig2 = px.pie(
+            plan_df,
+            names="Topic",
+            values="Allocated Hours",
+            title="Study Time Distribution",
+            hole=0.4
+        )
+
+        fig2.update_traces(textposition='inside', textinfo='percent+label')
+
+        plan_df = plan_df.sort_values(by="Allocated Hours", ascending=False).head(7)
+
+        st.plotly_chart(fig2, use_container_width=True)
