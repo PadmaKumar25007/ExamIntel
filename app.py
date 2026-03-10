@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 import plotly.express as px
+import json
 
 from utils.pdf_extractor import extract_text_from_pdfs
 from utils.topic_analyzer import extract_topics
@@ -10,21 +10,27 @@ from utils.planner import generate_study_plan
 
 from database.db import cursor, conn
 
-if "selected_plan" not in st.session_state:
-    st.session_state["selected_plan"] = None
 
-# Initialize session state
+# ---------------- SESSION INIT ----------------
+
+if "active_plan" not in st.session_state:
+    st.session_state["active_plan"] = None
+
 if "user" not in st.session_state:
     st.session_state["user"] = "demo_user"
 
-# Sidebar navigation
+
+# ---------------- SIDEBAR ----------------
+
 st.sidebar.title("ExamIntel")
 st.sidebar.title("📚 Your Plans")
 
+# New plan button
 if st.sidebar.button("➕ New Plan"):
-    st.session_state["selected_plan"] = None
+    st.session_state["active_plan"] = None
     st.rerun()
 
+# Load plans from DB
 cursor.execute(
     "SELECT DISTINCT title FROM plans WHERE username=?",
     (st.session_state["user"],)
@@ -32,28 +38,53 @@ cursor.execute(
 
 plans = [row[0] for row in cursor.fetchall()]
 
+# Sidebar plan selector
 selected_plan = st.sidebar.radio(
     "Previous Plans",
     plans,
-    key="selected_plan"
+    index=plans.index(st.session_state["active_plan"])
+    if st.session_state["active_plan"] in plans else None
 )
 
-if st.session_state["selected_plan"]:
-    
-    selected_plan = st.session_state["selected_plan"]
-        
+# Update active plan
+if selected_plan:
+    st.session_state["active_plan"] = selected_plan
+
+
+# =========================================================
+#                 MODE 1 → VIEW SAVED PLAN
+# =========================================================
+
+if st.session_state["active_plan"]:
+
+    selected_plan = st.session_state["active_plan"]
+
     st.title(f"📚 Study Plan: {selected_plan}")
 
     cursor.execute(
-        "SELECT topic, hours FROM plans WHERE username=? AND title=?",
+        "SELECT analysis FROM plans WHERE username=? AND title=?",
         (st.session_state["user"], selected_plan)
     )
 
-    data = cursor.fetchall()
+    data = cursor.fetchone()
 
-    plan_df = pd.DataFrame(data, columns=["Topic", "Allocated Hours"])
+    if data is None:
+        st.warning("No saved analysis found for this plan.")
+        st.stop()
 
-    st.subheader("Saved Study Plan")
+    analysis = json.loads(data[0])
+
+    topic_df = pd.DataFrame(analysis["topics"])
+    trend_df = pd.DataFrame(analysis["trend"])
+    plan_df = pd.DataFrame(analysis["plan"])
+
+    st.subheader("🔎 Top Extracted Topics")
+    st.dataframe(topic_df, use_container_width=True)
+
+    st.subheader("📈 Probability Analysis")
+    st.dataframe(trend_df, use_container_width=True)
+
+    st.subheader("📚 Saved Study Plan")
     st.dataframe(plan_df, use_container_width=True)
 
     fig = px.pie(
@@ -65,129 +96,140 @@ if st.session_state["selected_plan"]:
     )
 
     st.plotly_chart(fig, use_container_width=True)
-if st.session_state["selected_plan"] is None: 
- st.title("📊 AI Exam Strategy Architect")
 
-plan_title = st.text_input("Enter Study Plan Title", placeholder="Example: OS Exam Prep")
 
-uploaded_files = st.file_uploader(
-      "Upload Previous Year Question Papers",
-      type=["pdf"],
-      accept_multiple_files=True
+# =========================================================
+#                 MODE 2 → CREATE NEW PLAN
+# =========================================================
+
+else:
+
+    st.title("📊 AI Exam Strategy Architect")
+
+    plan_title = st.text_input(
+        "Enter Study Plan Title",
+        placeholder="Example: OS Exam Prep"
     )
 
-if uploaded_files:
+    uploaded_files = st.file_uploader(
+        "Upload Previous Year Question Papers",
+        type=["pdf"],
+        accept_multiple_files=True
+    )
 
-      with st.spinner("Analyzing exam papers..."):
-        text_dict = extract_text_from_pdfs(uploaded_files)
-        topic_df = extract_topics(text_dict)
-        trend_df = calculate_trend(text_dict, topic_df)
+    if uploaded_files:
 
-      st.success("PDFs processed successfully!")
+        with st.spinner("Analyzing exam papers..."):
 
-      topic_df.insert(0, "Rank", range(1, len(topic_df) + 1))
+            text_dict = extract_text_from_pdfs(uploaded_files)
 
-      topic_df["Score"] = topic_df["Score"].round(3)
+            topic_df = extract_topics(text_dict)
 
-      st.subheader("🔎 Top Extracted Topics")
-      st.dataframe(
-         topic_df.style
-          .format({"Score": "{:.3f}"})
-          .set_properties(**{'text-align': 'left'})
-          .set_table_styles([
-              {'selector': 'th', 'props': [('text-align', 'left')]}
-          ]),
-      use_container_width=True,
-      hide_index=True
-  )
+            trend_df = calculate_trend(text_dict, topic_df)
 
-      st.subheader("📈 Probability Analysis")
-      st.dataframe(
-      trend_df.style
-          .format({"Score": "{:.3f}"})
-          .set_properties(**{'text-align': 'left'})
-          .set_table_styles([
-              {'selector': 'th', 'props': [('text-align', 'left')]}
-          ]),
-      use_container_width=True,
-      hide_index=True
-  )
+        st.success("PDFs processed successfully!")
 
-      st.subheader("📊 Topic Probability Chart")
-      fig = px.bar(
-      trend_df,
-      x="Topic",
-      y="Probability (%)",
-      title="Topic Probability Analysis",
-      text="Probability (%)",
-      color="Probability (%)",
-      color_continuous_scale="Blues"
-  )
+        # Format topic table
+        topic_df.insert(0, "Rank", range(1, len(topic_df) + 1))
+        topic_df["Score"] = topic_df["Score"].round(3)
 
-      fig.update_traces(texttemplate='%{text:.0f}%', textposition='outside')
+        st.subheader("🔎 Top Extracted Topics")
 
-      fig.update_layout(
-          xaxis_tickangle=-40,
-          yaxis_title=dict(
-          text="Probability (%)",
-          font=dict(size=14, family="Arial Black")
-      ),
-      xaxis_title=dict(
-          text="Topics",
-          font=dict(size=14, family="Arial Black")
-      ),
-              showlegend=False
-      )
+        st.dataframe(
+            topic_df.style
+            .format({"Score": "{:.3f}"})
+            .set_properties(**{'text-align': 'left'})
+            .set_table_styles([
+                {'selector': 'th', 'props': [('text-align', 'left')]}
+            ]),
+            use_container_width=True,
+            hide_index=True
+        )
 
-      st.plotly_chart(fig, use_container_width=True)
-      st.subheader("⏳ Study Plan Generator")
+        st.subheader("📈 Probability Analysis")
 
-      days = st.number_input("Days Left", min_value=1, value=10)
-      hours = st.number_input("Hours Per Day", min_value=1, value=3)
+        st.dataframe(
+            trend_df,
+            use_container_width=True,
+            hide_index=True
+        )
 
-      st.subheader("📌 Mark Your Strength Level")
+        # Probability bar chart
+        st.subheader("📊 Topic Probability Chart")
 
-      weak_topics = st.multiselect(
-          "Select topics you feel WEAK in:",
-          trend_df["Topic"].tolist()
-      )
+        fig = px.bar(
+            trend_df,
+            x="Topic",
+            y="Probability (%)",
+            text="Probability (%)",
+            color="Probability (%)",
+            color_continuous_scale="Blues",
+            title="Topic Probability Analysis"
+        )
 
-      strong_topics = st.multiselect(
-          "Select topics you feel STRONG in:",
-          trend_df["Topic"].tolist()
-      )
+        fig.update_traces(texttemplate='%{text:.0f}%', textposition='outside')
 
-      if st.button("Generate Study Plan"):
-          
-          if not plan_title:
-            st.warning("Please enter a study plan title.")
-            st.stop()
+        fig.update_layout(
+            xaxis_tickangle=-40,
+            showlegend=False
+        )
 
-          plan = generate_study_plan(trend_df, days, hours, weak_topics, strong_topics)
-          plan_df = pd.DataFrame(plan)
+        st.plotly_chart(fig, use_container_width=True)
 
-          for _, row in plan_df.iterrows():
-                cursor.execute(
-                "INSERT INTO plans(username, title, topic, hours) VALUES (?, ?, ?, ?)",
-                (st.session_state["user"], plan_title, row["Topic"], row["Allocated Hours"])
+        # ---------------- STUDY PLAN GENERATOR ----------------
+
+        st.subheader("⏳ Study Plan Generator")
+
+        days = st.number_input("Days Left", min_value=1, value=10)
+        hours = st.number_input("Hours Per Day", min_value=1, value=3)
+
+        st.subheader("📌 Mark Your Strength Level")
+
+        weak_topics = st.multiselect(
+            "Select topics you feel WEAK in:",
+            trend_df["Topic"].tolist()
+        )
+
+        strong_topics = st.multiselect(
+            "Select topics you feel STRONG in:",
+            trend_df["Topic"].tolist()
+        )
+
+        # Generate plan
+        if st.button("Generate Study Plan"):
+
+            if not plan_title:
+                st.warning("Please enter a study plan title.")
+                st.stop()
+
+            plan = generate_study_plan(
+                trend_df,
+                days,
+                hours,
+                weak_topics,
+                strong_topics
             )
 
-          conn.commit()
-          
-          st.rerun()
+            plan_df = pd.DataFrame(plan)
 
-          st.dataframe(plan_df, use_container_width=True)
+            analysis_data = {
+                "topics": topic_df.to_dict(),
+                "trend": trend_df.to_dict(),
+                "plan": plan_df.to_dict()
+            }
 
-          fig2 = px.pie(
-              plan_df,
-              names="Topic",
-              values="Allocated Hours",
-              title="Study Time Distribution",
-              hole=0.4
-          )
+            cursor.execute(
+                "INSERT INTO plans(username, title, analysis) VALUES (?, ?, ?)",
+                (
+                    st.session_state["user"],
+                    plan_title,
+                    json.dumps(analysis_data)
+                )
+            )
 
-          fig2.update_traces(textposition='inside', textinfo='percent+label')
+            conn.commit()
 
-          plan_df = plan_df.sort_values(by="Allocated Hours", ascending=False).head(7)
+            # Activate the new plan
+            st.session_state["active_plan"] = plan_title
 
-          st.plotly_chart(fig2, use_container_width=True)
+            st.rerun()

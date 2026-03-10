@@ -18,11 +18,10 @@ def create_tables():
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS plans(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT,
-        title TEXT,
-        topic TEXT,
-        hours REAL
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    title TEXT,
+    analysis TEXT
     )
     """)
 
