@@ -10,6 +10,14 @@ from utils.planner import generate_study_plan
 
 from database.db import cursor, conn
 
+st.markdown("""
+<style>
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 0rem;
+    margin-top: -10px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------- SESSION INIT ----------------
 
@@ -22,8 +30,9 @@ if "user" not in st.session_state:
 
 # ---------------- SIDEBAR ----------------
 
+st.sidebar.image("assets/logo-transparent_croped.png", width=50)
 st.sidebar.title("ExamIntel")
-st.sidebar.title("📚 Your Plans")
+st.sidebar.subheader("📚 Your Plans")
 
 # New plan button
 if st.sidebar.button("➕ New Plan"):
@@ -84,7 +93,7 @@ if st.session_state["active_plan"]:
     st.subheader("📈 Probability Analysis")
     st.dataframe(trend_df, use_container_width=True)
 
-    st.subheader("📚 Saved Study Plan")
+    st.subheader("📚 Study Plan")
     st.dataframe(plan_df, use_container_width=True)
 
     fig = px.pie(
@@ -200,6 +209,18 @@ else:
 
             if not plan_title:
                 st.warning("Please enter a study plan title.")
+                st.stop()
+                
+            # Check for duplicate plans
+            cursor.execute(
+                "SELECT 1 FROM plans WHERE username=? AND title=?",
+                (st.session_state["user"], plan_title)
+            )
+
+            existing_plan = cursor.fetchone()
+
+            if existing_plan:
+                st.error("Plan already exists with this name. Try a different name.")
                 st.stop()
 
             plan = generate_study_plan(
