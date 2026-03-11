@@ -13,6 +13,10 @@ venv\Scripts\activate
 
 pip install -r requirements.txt
 
-5. Run application
+5.Install the NLP model 
+
+python -m spacy download en_core_web_sm
+
+6. Run application
 
 streamlit run app.py

@@ -10,27 +10,108 @@ from utils.planner import generate_study_plan
 
 from database.db import cursor, conn
 
+# login and plan state
+
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if "user" not in st.session_state:
+    st.session_state["user"] = None
+
+if "active_plan" not in st.session_state:
+    st.session_state["active_plan"] = None
+    
+
+if not st.session_state["logged_in"]:
+
+ st.title("🔐 ExamIntel Login")
+
+ tab1, tab2 = st.tabs(["Login", "Create Account"])
+
+ # LOGIN
+ with tab1:
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+
+        cursor.execute(
+            "SELECT * FROM users WHERE username=? AND password=?",
+            (username, password)
+        )
+
+        user = cursor.fetchone()
+
+        if user:
+            st.session_state["logged_in"] = True
+            st.session_state["user"] = username
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+# SIGNUP
+    with tab2:
+
+      new_user = st.text_input("Create Username")
+      new_pass = st.text_input("Create Password", type="password")
+
+      if st.button("Create Account"):
+
+        if not new_user or not new_pass:
+            st.warning("Please enter username and password")
+            st.stop()
+
+        cursor.execute(
+            "SELECT * FROM users WHERE username=?",
+            (new_user,)
+        )
+
+        existing = cursor.fetchone()
+
+        if existing:
+            st.error("Username already exists")
+        else:
+
+            cursor.execute(
+                "INSERT INTO users(username,password) VALUES(?,?)",
+                (new_user, new_pass)
+            )
+
+            conn.commit()
+
+            st.success("Account created! Please login.")
+
+    st.stop()
+
 st.markdown("""
 <style>
+
+/* Move sidebar content up */
 [data-testid="stSidebar"] > div:first-child {
     padding-top: 0rem;
     margin-top: -10px;
 }
+
+/* Make sidebar a flex container */
+section[data-testid="stSidebar"] > div {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Push logout section to bottom */
+#logout-section {
+    margin-top: auto;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- SESSION INIT ----------------
 
-if "active_plan" not in st.session_state:
-    st.session_state["active_plan"] = None
-
-if "user" not in st.session_state:
-    st.session_state["user"] = "demo_user"
-
-
-# ---------------- SIDEBAR ----------------
-
+# Side Bar
 st.sidebar.image("assets/logo-transparent_croped.png", width=50)
+st.sidebar.markdown(f"👤 **{st.session_state['user']}**")
 st.sidebar.title("ExamIntel")
 st.sidebar.subheader("📚 Your Plans")
 
@@ -58,12 +139,21 @@ selected_plan = st.sidebar.radio(
 # Update active plan
 if selected_plan:
     st.session_state["active_plan"] = selected_plan
+    
+# Logout option
+st.sidebar.markdown('<div id="logout-section">', unsafe_allow_html=True)
 
+st.sidebar.markdown("---")
 
-# =========================================================
-#                 MODE 1 → VIEW SAVED PLAN
-# =========================================================
+if st.sidebar.button("⬅️ Logout"):
+    st.session_state["logged_in"] = False
+    st.session_state["user"] = None
+    st.session_state["active_plan"] = None
+    st.rerun()
 
+st.sidebar.markdown('</div>', unsafe_allow_html=True)
+
+# Plan Selected
 if st.session_state["active_plan"]:
 
     selected_plan = st.session_state["active_plan"]
